@@ -1,0 +1,554 @@
+---
+title: "STA 525 - Homework 2"
+author: "Suruchi Ahuja, Abbas Rizvi, Hoi Lam Tai, Jingchen Zhang"
+date: "March 30, 2016"
+header-includes:
+        - \usepackage{subfigure}
+output: 
+        pdf_document:
+                fig_caption: true
+                keep_tex: yes
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache=TRUE)
+```
+
+# Problem 1
+## 1.1
+
+The Berry UK Training array was assigned to Group 2. Dr. Gaile assigned 7 columns of the `phenoData(gse19439[[1]])` as 'factor levels'.    
+
+```{r, message=FALSE}
+require(GEOquery)
+# Berry UK Training (array)
+load("gse19439.RData")
+#gse19439 <- getGEO("GSE19439", GSEMatrix=T)
+pdat19439 <- pData(phenoData(gse19439[[1]]))[,c(1,11:16)]
+```
+
+## 1.2 Research GSE19439
+
+`gse19439` is a SubSeries that is part of the SuperSeries `GSE19491:` *Blood Transcriptional Profiles in Human Active and Latent Tuberculosis*. Blood was collected from patients with different phenotypes of TB disease and healthy controls. The diseased groups were Pulmonary TB (PTB), Latent TB (LTB). The healthy controls were BCG vaccinated and unvaccinated. The ethnicity was from a wide range of groups, however the healthy controls were broadly white. The platform this experiment was run on was a was an Illumina HumanHT-12 V3.0 expression beadchip.
+
+## 1.3 Perform PCA and Investigate Potential Factor Level Discrimination
+Before we conducted PCA, we first looked at the phenotype data and saw that it was quite messy.
+
+```{r}
+pdat19439[1:5,1:5]
+```
+
+We noticed that each element had an unusual format of `Factor: Factor Level`. We decided that we would make this matrix more comprehensible, such that the factor became the column name and the sample factor level remained standalone.
+
+```{r}
+pdat19439[["title"]] <- NULL #removed group because 'title' has the same but more detailed info.
+## altering 'factor' columns so they are more interpretable
+colnames(pdat19439) <- c("gender", "ethnicity", "illness", "geographical_region", "bcg_vaccinated", "region_of_birth")
+rename <- function(x){
+        temp <- strsplit(as.character(x), ": ")
+        mat <- matrix(unlist(temp), ncol=2, byrow=TRUE)        
+}
+for(i in 1:ncol(pdat19439)){pdat19439[,i] <- as.factor(rename(pdat19439[,i])[,2])}
+pdat19439[1:5,1:6]
+```
+
+We need to access the expression data.
+```{r}
+assay.data <- exprs(gse19439[[1]])
+```
+
+PCA was conducted on the expression data.
+```{r, fig.height=4, fig.width=4, fig.cap = "Screeplot of PCA"}
+pc <- prcomp(assay.data, center = TRUE, scale = FALSE)
+plot(pc, type="lines")
+```
+
+We observed that most of the variance has been captured in PC1 (Figure 1).
+
+We plotted the first two PCs against one another (Figure 2). We colored the patients by different phenotype factors (Figure 2).
+
+```{r, fig.width=10, fig.height=6, fig.cap = "PCA of GSE19439 Patient Subsets"}
+titles <- colnames(pdat19439)
+factor.pca.plot <- function(data, group.factor, titles){
+        colpal <- c('#e41a1c','#377eb8','#4daf4a','#984ea3','#ff7f00','#ffff33')
+        colpal <- colpal[1:length(levels(group.factor))]
+        fit <- prcomp(t(data),center=T, scale=F)
+        pcx1 <- t(data)%*%fit$rotation[,1]
+        pcx2 <- t(data)%*%fit$rotation[,2]
+        plot(pcx1, pcx2, col=colpal[group.factor], pch=19)
+        legend("bottomright", pch=19, levels(group.factor), col=colpal)
+        title(titles)
+}
+par(mfrow=c(2,3))
+for(i in 1:ncol(pdat19439)){
+        factor.pca.plot(assay.data, pdat19439[,i], titles[i])
+}
+```
+
+## 1.4 Implement a feature selection step and perform PCA on the feature selected dataset
+We implemented a feature selection with the function `feature.subset`. `feature.subset` conducts a dip test which tests for unimodality. The `feature.subset` allows the user to pick a cutoff value and grab the cutoff number of "best" (lowest) p-values. For example, if we we want the 135 top (lowest) p-values -- we can set the cutoff to 135 as the input argument to `feature.subset`. 
+```{r, fig.cap="histogram of dip test pvalues"}
+library(diptest)
+MyDip <- function(i) {dip.test(x=assay.data[i,])$p.value}
+I <- dim(assay.data)[1] # number of features
+mfilt <- as.vector(mapply(MyDip,1:I))
+hist(mfilt)
+```
+
+Which pvalues in the histogram (Figure 3) should we select as our 'feature'? We decided to investigate how different feature cutoffs would look in PCA plots. The cutoffs we looked at were 135, 1000, and 2000. We utilized the `factor.pca.plot`  function to plot the first two PCs (Figures 4-6).
+
+```{r, fig.width=10, fig.height=6, fig.cap = "PCA of Feature Cutoff = 135, Colored by Phenotype Factors", cache=FALSE}
+feature.subset <- function(cutoff){assay.data[which(mfilt<sort(mfilt)[cutoff+1]),]}
+our.feature <- feature.subset(135)
+par(mfrow=c(2,3))
+for(i in 1:ncol(pdat19439)){
+        factor.pca.plot(our.feature, pdat19439[,i], titles[i])
+}
+```
+
+```{r, fig.width=10, fig.height=6, fig.cap = "PCA of Feature Cutoff = 1000, Colored by Phenotype Factors", echo=FALSE, cache=FALSE}
+feature.subset <- function(cutoff){assay.data[which(mfilt<sort(mfilt)[cutoff+1]),]}
+our.feature <- feature.subset(1000)
+par(mfrow=c(2,3))
+for(i in 1:ncol(pdat19439)){
+        factor.pca.plot(our.feature, pdat19439[,i], titles[i])
+}
+```
+
+```{r, fig.width=10, fig.height=6, fig.cap = "PCA of Feature Cutoff = 2000, Colored by Phenotype Factors", echo=FALSE, cache=FALSE}
+feature.subset <- function(cutoff){assay.data[which(mfilt<sort(mfilt)[cutoff+1]),]}
+our.feature <- feature.subset(2000)
+par(mfrow=c(2,3))
+for(i in 1:ncol(pdat19439)){
+        factor.pca.plot(our.feature, pdat19439[,i], titles[i])
+}
+```
+
+We can see that when more features are included, that the dispersion of samples in this space are more wide spread. However, no discrimination of phenotypes are obvious.
+
+# Problem 2: Hierarchical Cluster Analysis
+## 2.1 The dataset was loaded into the R environment.
+```{r, message=FALSE}
+load("gse19439.RData")
+load("pdat19439.RData")
+```
+
+## 2.2
+Hierarchical Cluster Analysis is a method of cluster analysis which seeks to build a hierarchy of clusters. There are two approaches - top down approach and bottom-up approach. To decide which method must be used - a method of dissimilarity between sets of observations is required. This is done by finding appropriate distance metric and appropriate criterion.
+
+Distance metrics influence shape of the cluster. The different types are euclidean distance, Manhattan distance, maximum, binary and canberra distance. Linkage criterion determines the distance between the set of observations as a function of pairwise distance. The different linkage criterion methods are complete, average, single and centroid.
+
+A helper function with `hclust` was used to perform hierarchical clustering for the entire dataset in an automated way.
+
+```{r, message=FALSE}
+feature.selection <- function(feature, subgroup)
+        {assay.data[,colnames(assay.data) %in% rownames(pdat19439[feature == subgroup,])]}
+
+cluster.analysis <- function(featurelabel, distance.metric, cluster.metric){
+        colnames(assay.data) <- paste(colnames(assay.data), pdat19439[[featurelabel]], sep="-")
+        dissimilarity <- 1-cor(assay.data)
+        dist <- dist(dissimilarity, method = distance.metric)
+        plot(hclust(dist, method=cluster.metric), main=NULL)
+        title(paste0(distance.metric, " distance dendrogram (", cluster.metric,
+                     " linkage) labeled by ", featurelabel))
+}
+```
+
+Different distance metrics and linkage criterion were used (Figure 7).
+```{r, message=FALSE, fig.width = 10, fig.height = 14, fig.cap = "Cluster analysis of complete data with different distance metrics and linkage criterions"}
+par(mfrow=c(3,1))
+cluster.analysis("illness", "maximum", "average")
+cluster.analysis("illness", "euclidean", "complete")
+cluster.analysis("illness", "manhattan", "single")
+```
+
+## 2.3 Implement a feature selection step and perform hclust on the feature selected dataset
+The function `cluster.analysis.subset` was written to subset our feature of interest and subsequently plot the first hclust of the features selected (Figure 8).
+
+```{r, message=FALSE}
+cluster.analysis.subset <- function(feature, feature.subgroup, featurelabel, distance.metric,
+                                    cluster.metric){
+        select <- feature.selection(feature, feature.subgroup)
+        new.pdat <- pdat19439[rownames(pdat19439) %in% colnames(select),]
+        colnames(select) <- paste(colnames(select), new.pdat[[featurelabel]], sep="-")
+        dissimilarity <- 1-cor(select)
+        dist <- dist(dissimilarity, method = distance.metric)
+        plot(hclust(dist, method=cluster.metric), main=NULL)
+        title(paste0(distance.metric, " distance dendrogram (", cluster.metric,
+                     " linkage) subsetted by ", feature.subgroup, " and labeled by ", featurelabel))
+}
+```
+
+Here the cluster analysis is done on the illness feature for the `PTB` patients categorized with different ethnic groups. the distance metric used was euclidean and the complete linkage criterion was used (Figure 8).
+
+```{r, message=FALSE, fig.cap = "Clustering using patient subset, labeled by factor, with different distance/linkage methods", fig.width=10, fig.height=5}
+cluster.analysis.subset(pdat19439$illness, "PTB", "ethnicity", "euclidean", "complete")
+```
+
+When compared to the full data, the feature selected subsets are more clear and easy to visualize.
+
+# Problem 3: Power
+For this question were explored the concept of statistical power.
+
+We considered the following study:
+A simulated biomarker study involving 200 targets across two patient populations ("group A" and "group B", $n = 10$ subjects each) was considered. The goal of the study was to identify differential expression across the two groups. The study assumed that only one (*alternative*) of the targets (1/200) are differentially expressed, while the remaining 199 targets were *null*. The *null* targets were assumed to be distributed $N(0,1)$. The *alternative* target was assumed to be distributed with a $\mu_{A} = \delta$ and an $\sigma = 1$. The *null* targets were assumed to have a multivariate distribution with a pairwise correlation of $\rho$ for all *null* target pairings. 
+
+The analysis plan was to perform two sample equal variance t-tests and then use maxT to adjust the p-values. We can estimate the power of the study by by binding it between two power curves. 
+
+Question: Why might we prefer the maxT adjustment to that of Bonferroni?
+
+Bonferroni correction is a method used to address the problem of multiple comparisons. It is based on the idea of $m$ hypotheses, and that the familywise type I error rate (FWER) can be controlled by testing each individual hypothesis at a statistical significance level $\alpha/m$. That is, FWER is the probability of making one false discovery (type I error) among all the hypotheses performing multiple hypotheses tests. maxT computes a permutation adjusted p-values for the step-down maxT multiple testing procedure. maxT provides strong control of the FWER when the test statistics have different distributions
+
+Dr. Gaile provided us some code to work to show power curves with $\alpha = 0.05$ and $\alpha = 0.05/200$. This code simulates a distribution of power values for 101 elements of effect size $\delta$ values ranging from 0 - 3.5.  
+```{r}
+require(pwr)
+dvals=seq(0,3.5,length=101) #Vector of effect sizes from 0-3.5 over a length of 101
+pwr=rep(0,length(dvals))
+for(i in 1:(length(dvals))) pwr[i]=pwr.t.test(n=10,d=dvals[i],sig.level=0.05)$power
+
+#Bonferroni correction
+pwrBon=rep(0,length(dvals))
+for(i in 1:(length(dvals))) pwrBon[i]=pwr.t.test(n=10,d=dvals[i],sig.level=0.05/200)$power
+```
+
+Question: What would the power to reject the null hypothesis if the test was conducted at the Bonferroni correct level of $\alpha = 0.05/200$?
+
+$Power \leq 0.05/200$
+
+```{r}
+pwrBon[pwrBon <= 0.05/200] 
+```
+
+
+Dr. Gaile also provided a function `SimDatHW2` to simulate the study dataset.
+```{r}
+SimDatHW2=function(p.alt=10, # the number of differentially expressed features ... 
+                   p.null=90, # the number of non-differentially expressed features 
+                   n=20, # the number of samples in each of the treatment and control groups
+                   rho.alt=0.2, # correlation of the alt hyp variables
+                   rho.null=0.1, # correlation of the null hyp variables
+                   delta=2,# the mean of the p.alt features in the "treatment" group
+                   sdC=0 # the variance of the sample specific centering error
+){
+        p=p.alt+p.null
+        Sigma=array(rep(0,p^2),dim=c(p,p))
+        Sigma[1:p.alt,1:p.alt]=rho.alt
+        Sigma[(p.alt+(1:p.null)),(p.alt+(1:p.null))]=rho.null
+        diag(Sigma)=1
+        Xc=mvrnorm(n,mu=rep(0,p),Sigma=Sigma)
+        Xt=mvrnorm(n,mu=c(rep(delta,p.alt),rep(0,p.null)),Sigma=Sigma)
+        x=t(rbind(Xc,Xt))
+        colnames(x)=c(paste("cntrl",1:n,sep=""),paste("trt",1:n,sep=""))
+        rownames(x)=c(paste("DEgene",1:(p.alt)),paste("nonDEgene",1:p.null,sep=""))
+        if(sdC>0){
+                CentError=rnorm(2*n,sd=sdC)
+                for(j in 1:(2*n)) x[,j]=x[,j]+CentError[j]
+        }
+        return(x)
+}
+```
+
+If we adjust for test multiplicity using maxT instead of Bonferroni, the maxT approach will lie somewhere between the power curves computed from $\alpha = 0.05$ and Bonferroni correction. Here we will plot the power curves with the significance levels $\alpha = 0.05$ and Bonferroi correction. We will also simulate a data point with a $\delta = 2$ and a $\rho_{null} = 0.75$ (Figure 9).
+
+```{r, fig.cap = "Power curves: Black is alpha = 0.05 and blue line is alpha = 0.05/200. The green point corresponds to the simulated estimate of power when using maxT adjustment instead of Bonferroni"}
+load(file="PhiVec.RData")
+plot(dvals,pwr,type="l",xlab=expression(delta),ylab="power",ylim=c(0,1))
+abline(h=0.05,lty=2)
+lines(dvals,pwrBon,col=4,lwd=2)
+abline(h=0.05/200,lty=3,col=4)
+# add our simulation point
+points(2,mean(PhiVec),pch="+",col="darkgreen", cex=1)
+```
+
+We conducted a simulation to add some points to Figure 10. The simulations were with $\rho_{null} \in$ {0.25, 0.75} and $\delta \in$ {0.75, 1.50, 2.25, 3.0} (Figure 10)
+
+```{r, eval=FALSE}
+PhiVecs <- function(rho.null, delta){
+        nreps <- 1000
+        PhiVec <- rep(NA,nreps)
+        f <- factor(c(rep("cntrl", 10), rep("trt", 10)))
+        for(k in 1:nreps){
+                X <- SimDatHW2(p.alt=1,p.null=199,n=10,rho.alt=0,rho.null=rho.null,delta=delta)
+                # calculate minP adjusted p-values
+                resT <- mt.maxT(X, f, B = 2500)
+                PhiVec[k] <- as.integer(resT$adjp[resT$index==1]<=0.05)
+        }
+        PhiVec
+}
+
+deltas <- c(0.75, 1.50, 2.25, 3.0)
+rho.null <- c(0.25, 0.75)
+phivecs.delta.rho25 <- mapply(PhiVecs, rho.null[1], deltas[1:4])
+phivecs.delta.rho75 <- mapply(PhiVecs, rho.null[2], deltas[1:4])
+```
+
+```{r, fig.cap = "Simulations with maxT corrections. Data points with * symbols have a correlation of rho = 0.25. Data points with # symbols have a rho = 0.75."}
+load("phivecs_deltarho25.RData")
+load("phivecs.delta.rho75.RData")
+plot(dvals,pwr,type="l",xlab=expression(delta),ylab="power",ylim=c(0,1))
+abline(h=0.05,lty=2)
+lines(dvals,pwrBon,col=4,lwd=2)
+abline(h=0.05/200,lty=3,col=4)
+# add our simulation point
+points(2,mean(PhiVec),pch="+",col="darkgreen", cex=1)
+deltas <- c(0.75, 1.50, 2.25, 3.0)
+rho.null <- c(0.25, 0.75)
+for(i in 1:length(deltas)){
+        colpal <- c('#1b9e77','#d95f02','#7570b3','#e7298a')
+        points(deltas[i], mean(phivecs.delta.rho25[,i]), pch="*", col=colpal[i], cex=2)
+        points(deltas[i], mean(phivecs.delta.rho75[,i]), pch="#", col=colpal[i], cex=1)
+}
+```
+
+The results suggest that when the correlation of the *null* group ($\rho$) increases (Figure 10), the power to detect lower effect sizes increases. As such, maxT works better than Bonferroni when the correlation of the *null* group increases. Bonferroni is very conservative. maxT can adjust for the multiplicity while accounting for the underlying correlation structure. 
+
+# Problem 4: Correlation Analysis
+The aim of this problem is to investigate the impact of centering error on the uniformity of p-value and on the distribution of pairwise correlation of data. First, `SimDatHW2` from problem set 3 was retrieved for the generation of required dataset in problem set 4. 
+
+Then we generated data with and without centering error based on `SimDatHW2`. Data `X1` was without centering error. Data `X2a` was with centering error. Data `X2b` was data with centering error but re-centered by their column mean. 
+
+```{r}
+require(MASS)
+X1 <- SimDatHW2(p.alt=25,p.null=50,n=20,rho.alt=.3,rho.null=0.0,delta=2,sdC=0)
+X2a <- SimDatHW2(p.alt=25,p.null=50,n=20,rho.alt=.3,rho.null=0.0,delta=2,sdC=1)
+X2b <- X2a
+for(j in 1:40) X2b[,j]=X2b[,j]-mean(X2b[,j])
+```
+
+## 4.2
+Since all of the null targets were generated with zero correlation -- we check all the pairwise correlations between null targets and see if their pairwise correlation distributions are centered about zero or not.
+
+The number of pairwise correlation in null target now should be ${50 \choose 2}$
+```{r}
+choose(50, 2)
+```
+
+
+We generated the pairwise correlation of null targets in each group and also plotted histograms to show their distribution.
+```{r, fig.cap = "Histograms of Problem 4 Simulated Data Sets", fig.width=10, fig.height=4}
+RhoNullX1=cor(t(X1[26:75,]))
+RhoNullX2a=cor(t(X2a[26:75,]))
+RhoNullX2b=cor(t(X2b[26:75,]))
+
+par(mfrow=c(1,3))
+hist(RhoNullX1[upper.tri(RhoNullX1)], main="Histogram of RhoNullX1")
+hist(RhoNullX2a[upper.tri(RhoNullX2a)], main="Histogram of RhoNullX2a")
+hist(RhoNullX2b[upper.tri(RhoNullX2b)], main="Histogram of RhoNullX2b")
+```
+
+Figure 11 shows `X1` its pairwise correlation are mostly centered at zero. For `X2a`, since centering error was added into this dataset, the pairwise correlation shift to right a lot and none of it falls into zero, so we can say its pairwise correlation distribution was not centered at zero. For `X2b`, the dataset was modified by re-centering through the column mean, but it still fails to center at zero.
+
+## 4.3
+The p-values theoretically should have a uniform distribution. We wanted to see our data sets were uniformally distributed by looking at the eCDF and conducting a KS test (or goodness-of-fit test).
+
+```{r, fig.show = "hide"}
+myTX1=function(i) t.test(X1[i,1:20],X1[i,21:40],var.equal=T)$p.value
+pvalueX1=mapply(myTX1,26:dim(X1)[1])
+ks.test(pvalueX1,'punif')
+plot(ecdf(pvalueX1));abline(0,1,col=2)
+```
+
+The default significance level is 0.05 and now our p-value is 0.4629. So we failed to reject the null hypothesis. It suggested that the distribution of p-value of data without centering error is uniform (Figure 12, right panel). 
+
+```{r, fig.show = "hide"}
+myTX2a=function(i) t.test(X2a[i,1:20],X2a[i,21:40],var.equal=T)$p.value
+pvalueX2a=mapply(myTX2a,26:dim(X2a)[1])
+ks.test(pvalueX2a,'punif')
+plot(ecdf(pvalueX2a));abline(0,1,col=2)
+```
+
+The default significance level is 0.05 and now our p- value is 0.00178. So we rejected the null hypothesis. It suggested that the distribution of p-value of data without centering error is not uniform (Figure 12, center panel).
+
+```{r, fig.show="hide"}
+myTX2b=function(i) t.test(X2b[i,1:20],X2b[i,21:40],var.equal=T)$p.value
+pvalueX2b=mapply(myTX2b,26:dim(X2b)[1])
+ks.test(pvalueX2b,'punif')
+plot(ecdf(pvalueX2b));abline(0,1,col=2)
+```
+
+The default significance level is 0.05 and now our p-value is 1.998e-15. So we rejected the null hypothesis. It suggested that the distribution of p-value of data without centering error is not uniform (Figure 12, right panel). 
+
+```{r, echo=T, fig.width=10, fig.height=4, fig.cap = "Empirical CDF of Observed Datasets, Identity (red) line is a Uniform Distribution CDF."}
+par(mfrow=c(1,3))
+plot(ecdf(pvalueX1));abline(0,1,col=2)
+plot(ecdf(pvalueX2a));abline(0,1,col=2)
+plot(ecdf(pvalueX2b));abline(0,1,col=2)
+```
+
+## 4.4 
+Now, we figure out the impact of centering error in another way. First let's look at the correlation plot of null data without centering error. let's look at the plot data with centering added to each column. 
+```{r, fig.width=10, fig.height=4, fig.cap = "Sample Correlations of Observed Datasets"}
+par(mfrow=c(1,3))
+plot(RhoNullX1[1,],RhoNullX1[2,],
+     main=paste("Sample Correlation =",round(cor(RhoNullX1[1,],RhoNullX1[2,]),4)))
+plot(RhoNullX2a[1,],RhoNullX2a[2,],
+     main=paste("Sample Correlation =",round(cor(RhoNullX2a[1,],RhoNullX2a[2,]),4)))
+plot(RhoNullX2b[1,],RhoNullX2b[2,],
+     main=paste("Sample Correlation =",round(cor(RhoNullX2b[1,],RhoNullX2b[2,]),4)))
+```
+
+We can see that centering error did change the pairwise correlation of the data.
+
+If we connect those complementary dots between data with and without centering error and connect them by red line. We can get the following diagram. All of the slope of red line were not equal. Since we generate the data with centering error by adding random variables to the data without noise. As a result, all the points have a different degree of shifting (Figure 14, 15). 
+
+```{r, fig.width=10, fig.height=4, fig.cap = "Change from X1 to X2b"}
+xylim=range(c(RhoNullX1[1,],RhoNullX2a[1,],RhoNullX1[2,],RhoNullX2a[2,])) 
+plot(c(RhoNullX1[1,],RhoNullX2a[1,]),c(RhoNullX1[2,],RhoNullX2a[2,]), 
+     xlim=xylim,ylim=xylim,type="n",xlab="Target 1", ylab="Target 2") 
+abline(0,1,lty=2,lwd=3,col="gray67") 
+# now,let's add original points 
+points(RhoNullX1[1,],RhoNullX1[2,],col="gray47") 
+# now, let's add the points with centering error and connect with lines 
+for(j in 1:25){ 
+  lines(c(RhoNullX1[1,j],RhoNullX2a[1,j]),c(RhoNullX1[2,j],RhoNullX2a[2,j]),col=2) 
+  points(RhoNullX2a[1,],RhoNullX2a[2,],pch=10) 
+  }
+```
+
+```{r, fig.width=10, fig.height=4, fig.cap = "Change from X1 to X2b"}
+xylim=range(c(RhoNullX1[1,],RhoNullX2b[1,],RhoNullX1[2,],RhoNullX2b[2,])) 
+plot(c(RhoNullX1[1,],RhoNullX2a[1,]),c(RhoNullX1[2,],RhoNullX2a[2,]), 
+     xlim=xylim,ylim=xylim,type="n",xlab="Target 1", ylab="Target 2") 
+abline(0,1,lty=2,lwd=3,col="gray67") 
+# now,let's add original points 
+points(RhoNullX1[1,],RhoNullX1[2,],col="gray47") 
+# now, let's add the points with centering error and connect with lines 
+for(j in 1:25){ 
+  lines(c(RhoNullX1[1,j],RhoNullX2b[1,j]),c(RhoNullX1[2,j],RhoNullX2b[2,j]),col=2) 
+  points(RhoNullX2b[1,],RhoNullX2b[2,],pch=10) 
+  }
+```
+
+
+# Problem 5: Mystery Matrix
+After we loaded the data, we drew a heatmap to have a first look at the dataset. When the columns and rows are both not reordered, the heatmap seems a total mess. When we reorder the rows only, it seems there is a obvious difference between the top and bottom blocks. When we reorder the columns only, we can see a similar pattern in the top block and the bottom block.
+
+```{r}
+load("HW2X.RData")
+colnames(X) = as.character(c(1:dim(X)[2])) # name the columns
+rownames(X)=as.character(c(1:dim(X)[1]))
+```
+```{r,eval=FALSE}
+heatmap(X,Rowv=NA,Colv=NA,hclustfun = hclust) # total mess
+heatmap(X,Colv=NA,hclustfun = hclust) # reorder the rows only # still mess
+heatmap(X,Rowv=NA,hclustfun = hclust) # reorder the columns only
+```
+
+\begin{figure}[htb]
+	\centering
+	\subfigure[original]{
+		\begin{minipage}[c]{0.3\textwidth}
+			\centering
+			\includegraphics[width=4.5cm]{q5-figures-latex/original.pdf}
+		\end{minipage}%
+	}%
+	\subfigure[reorderrows]{
+		\begin{minipage}[c]{0.3\textwidth}
+			\centering
+			\includegraphics[width=5.5cm]{q5-figures-latex/reorderrows.pdf}
+		\end{minipage}%
+	}%
+		\subfigure[reordercols]{
+			\begin{minipage}[c]{0.3\textwidth}
+				\centering
+				\includegraphics[width=4.3cm]{q5-figures-latex/reordercols.pdf}
+			\end{minipage}
+		}
+	\caption{heatmap: first look}\label{first look}
+\end{figure}
+
+Then we performed hierarchical clustering on the rows and cut tree into 2 clusters to find out those rows with similar pattern. It turns out that the top 30 and bottom 30 rows have similar blocks.
+
+```{r, eval=FALSE}
+h1=hclust(dist(X))
+plot(h1)
+groups = cutree(h1, k=2) # cut tree into 2 clusters
+which(groups==1) # 1:30 & 211:240
+```
+\begin{figure}[htb]
+	\centering
+	\includegraphics[width=0.6\textwidth,height=0.4\textwidth]{q5-figures-latex/clusterrows.pdf}
+	\caption{cluster rows}
+\end{figure}
+
+So our strategy is trying to make all those block smooth.
+
+We ordered the column means of the first 30 row to get a new matrix. Then a heatmap is provided.
+
+```{r, fig.align="center", fig.cap="heatmap: reorded by mean"}
+colmean = colMeans(X[c(1:30),])
+XMean = X[,order(colmean)]
+heatmap(XMean,Rowv = NA,Colv = NA)
+```
+
+According to this heatmap, we can have a rough understanding of this picture. But there is still some columns not smooth enough. We use correlation to make it better. We use the first column in the new matrix (which turns out to be the 73 column in the original matrix) as the beginning column.
+
+
+```{r, fig.align="center", fig.cap="heatmap: correlation with the first column", fig.height=4}
+colnames(XMean)[1] # 73 column in X
+n = dim(X)[2] # the number of columns
+orderCol =rep(0,n)
+orderCol[1] = 73
+remainingCol = X[,-73]
+currentCol = X[,73]
+for (i in 1:(n - 1)){
+        corCol = 0
+#get all corrlation
+        for (j in 1:(n - i)){
+                corCol[j] = cor(currentCol,remainingCol[,j],method = "pearson")
+        }
+        maxInd = which.max(corCol)
+        currentCol = remainingCol[,maxInd,drop = F]
+        remainingCol = remainingCol[,-maxInd,drop = F]
+        orderCol[i + 1] = as.numeric(colnames(currentCol))
+}
+heatmap(X[,orderCol],Rowv = NA,Colv = NA)
+```
+
+Now we already got a pretty good heatmap.
+
+Let's try use the last column in the new matrix (which turns out to be the 9 column in the original matrix) as the beginning column. The heatmap should be symmetric with last one.
+
+```{r, fig.cap="heatmap: correlation with the last column", fig.align="center"}
+colnames(XMean)[140] # 9 column in X
+n = dim(X)[2] # the number of columns
+orderCol =rep(0,n)
+orderCol[1] = 9
+remainingCol = X[,-9]
+currentCol = X[,9]
+for (i in 1:(n - 1)){
+        corCol = 0
+#get all corrlation
+        for (j in 1:(n - i)){corCol[j] = cor(currentCol,remainingCol[,j],method = "pearson")}
+        maxInd = which.max(corCol)
+        currentCol = remainingCol[,maxInd,drop = F]
+        remainingCol = remainingCol[,-maxInd,drop = F]
+        orderCol[i + 1] = as.numeric(colnames(currentCol))
+}
+heatmap(X[,orderCol],Rowv = NA,Colv = NA)
+```
+
+# Attribution of Work
+\begin{itemize}
+\item Suruchi Ahuja
+        \begin{itemize}
+                \item Question 2 - Write-up/contributed to code/prepared question 2 slides
+        \end{itemize}
+\item Abbas Rizvi
+        \begin{itemize}
+                \item Question 1 - Write-up/code/slides 
+                \item Question 2 - Code/formatted and finalized slides
+                \item Question 3 - Write-up/code/slides
+                \item Question 4 - Some code/some write-up/prepared, formatted and finalized slides
+                \item Compiled knit R document
+                \item Compiled R presentation
+        \end{itemize}
+\item Hoi Lam Tai
+        \begin{itemize}
+                \item Question 4 - Code/Write-up
+        \end{itemize}
+\item Jingchen Zhang 
+        \begin{itemize}
+                \item Question 3 - Contributed to interpretation
+                \item Question 5 - Code/Write-up/prepared slides
+        \end{itemize}
+\end{itemize}   
